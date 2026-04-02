@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BBQ Cook Off Timer</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#000000;color:#f8fafc}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px;display:grid;gap:16px}
+    .top{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+    .card{background:#901b05;border:3px solid #b69654;border-radius:24px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .title{font-size:22px;font-weight:800;margin-bottom:14px}
+    .big{font-size:42px;font-weight:800}
+    .sub{margin-top:16px;font-size:22px;font-weight:700}
+    .muted{color:#e5e7eb;font-size:18px}
+    .small{color:#d1d5db;font-size:13px;margin-top:10px;line-height:1.4}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+    .controlsFull{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;align-items:end}
+    .filterWrap{display:grid;gap:6px}
+    .controlsFull button,.controlsFull select{width:100%}
+    .controlsFull .lbl{margin-bottom:0;text-align:center}
+    .grid{display:grid;gap:12px}
+    .row{display:grid;grid-template-columns:1fr 1fr 56px;grid-template-areas:"time task delete" "category notes delete";gap:12px;align-items:end;padding:14px;border-radius:18px;border:3px solid #b69654;background:#901b05}
+    .row.alerted{border-color:#b69654;background:rgba(182,150,84,.18)}
+    .lbl{margin-bottom:6px;color:#f3f4f6;font-size:14px}
+    .cell{text-align:center}
+    .cell.time{grid-area:time}
+    .cell.task{grid-area:task}
+    .cell.category{grid-area:category}
+    .cell.notesCell{grid-area:notes}
+    .cell.deleteCell{grid-area:delete;display:flex;align-items:center;justify-content:center}
+    .cell input,.cell select,.cell button{margin:0 auto}
+    .notesBtn{min-width:100px}
+    input,select,textarea{width:100%;padding:10px 12px;border-radius:12px;border:2px solid #b69654;background:#0f172a;color:white;box-sizing:border-box}
+    textarea{min-height:160px;resize:vertical}
+    button{padding:10px 14px;border-radius:14px;border:none;background:#2563eb;color:white;font-weight:700;cursor:pointer}
+    button.secondary{background:#475569}
+    button.warn{background:#b91c1c}
+    button.notes{background:#111111;color:#f8fafc;border:2px solid #b69654}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:16px;z-index:9999}
+    .overlay.show{display:flex}
+    .modal{background:#fef3c7;color:#111827;border-radius:28px;border:4px solid #f59e0b;width:100%;max-width:520px;padding:24px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+    .modal h2{font-size:28px;margin:0 0 12px}
+    .modal .task{font-size:42px;font-weight:900;margin-bottom:10px}
+    .modal .cat{font-size:28px;font-weight:700;color:#b45309;margin-bottom:18px}
+    .modal .notes{font-size:16px;line-height:1.5;text-align:left;white-space:pre-wrap;background:rgba(0,0,0,.08);padding:12px;border-radius:14px;margin-bottom:18px;max-height:250px;overflow:auto}
+    .hidden{display:none}
+    .left{text-align:left}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="card">
+        <div class="title">Live Clock</div>
+        <div class="big" id="liveClock">00:00:00</div>
+        <div class="small">This version uses your real device time and checks every second.</div>
+      </div>
+
+      <div class="card">
+        <div class="title">Next Countdown</div>
+        <div class="big" id="countdown">00:00:00</div>
+        <div class="sub" id="nextTask">No upcoming tasks</div>
+        <div class="muted" id="nextCategory"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">Controls</div>
+      <div class="controlsFull">
+        <div class="filterWrap">
+          <div class="lbl">Filter Category</div>
+          <select id="categoryFilter"></select>
+        </div>
+        <button id="sortTasksBtn" class="secondary">Sort by Time</button>
+        <button id="addTaskBtn">Add Task</button>
+        <button id="resetAlertsBtn" class="secondary">Reset Alerts</button>
+        <button id="testAlertBtn" class="secondary">Test Alert</button>
+        <button id="exportBtn" class="secondary">Export Tasks</button>
+        <button id="importBtn" class="secondary">Import Tasks</button>
+        <button id="clearDataBtn" class="warn">Clear Saved Data</button>
+        <input id="importFileInput" class="hidden" type="file" accept=".json,application/json" />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">Task Schedule</div>
+      <div class="small" style="margin-bottom:12px">Tip: set a time about 1 minute ahead. Export Tasks saves a backup file you can load next competition with Import Tasks.</div>
+      <div class="grid" id="taskList"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="alertOverlay">
+    <div class="modal">
+      <h2>Cook-Off Alert</h2>
+      <div class="task" id="alertTask">Task</div>
+      <div class="cat" id="alertCategory">Category</div>
+      <button id="closeAlertBtn" style="width:100%">OK</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="notesOverlay">
+    <div class="modal">
+      <h2>Task Notes</h2>
+      <div class="task" id="notesTaskTitle">Task</div>
+      <div class="cat" id="notesTaskCategory">Category</div>
+      <div class="notes" id="notesContent">No notes yet.</div>
+      <button id="editNotesFromModalBtn" class="secondary" style="width:100%;margin-bottom:10px">Edit Notes</button>
+      <button id="closeNotesBtn" style="width:100%">Close</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="notesEditOverlay">
+    <div class="modal left">
+      <h2>Edit Notes</h2>
+      <div style="margin-bottom:10px;font-weight:700" id="notesEditTaskTitle">Task</div>
+      <textarea id="notesEditor"></textarea>
+      <div style="display:grid;gap:10px;margin-top:14px">
+        <button id="saveNotesBtn">Save Notes</button>
+        <button id="cancelNotesBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const STORAGE_KEY = "cookoff-tasks-html-v4";
+const categoryOptions = [
+  "Brisket",
+  "Chicken",
+  "Pork",
+  "Ribs",
+  "Dessert",
+  "Open",
+  "Turkey",
+  "Beans"
+];
+
+const defaultTasks = [
+  { id: "1", time: "", task: "Light Pit", category: "Brisket", notes: "", alerted: false },
+  { id: "2", time: "", task: "Check Temp", category: "Chicken", notes: "", alerted: false }
+];
+
+let tasks = loadTasks().map(task => ({
+  id: task.id || String(Date.now() + Math.random()),
+  time: task.time || "",
+  task: task.task || "",
+  category: task.category || "Brisket",
+  notes: task.notes || "",
+  alerted: !!task.alerted
+}));
+let intervalId = null;
+let notesTaskId = null;
+let pendingNotesTaskId = null;
+let alertBeepInterval = null;
+
+function loadTasks() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : defaultTasks;
+  } catch {
+    return defaultTasks;
+  }
+}
+
+function saveTasks() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return "00:00:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map(n => String(n).padStart(2, "0")).join(":");
+}
+
+function toTodayDate(timeString) {
+  if (!timeString) return null;
+  const parts = timeString.split(":").map(v => Number(v));
+  const hours = parts[0], minutes = parts[1], seconds = parts[2] || 0;
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  const d = new Date();
+  d.setHours(hours, minutes, seconds, 0);
+  return d;
+}
+
+function playSingleBeep() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = "square";
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.06;
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.25);
+  } catch {}
+}
+
+function startAlertSound() {
+  stopAlertSound();
+  playSingleBeep();
+  alertBeepInterval = setInterval(() => {
+    playSingleBeep();
+  }, 1000);
+}
+
+function stopAlertSound() {
+  if (alertBeepInterval) {
+    clearInterval(alertBeepInterval);
+    alertBeepInterval = null;
+  }
+}
+
+function showAlert(task, category) {
+  document.getElementById("alertTask").textContent = task || "Task";
+  document.getElementById("alertCategory").textContent = category || "Category";
+  document.getElementById("alertOverlay").classList.add("show");
+  startAlertSound();
+  try {
+    if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 300]);
+  } catch {}
+}
+
+function closeAlert() {
+  stopAlertSound();
+  document.getElementById("alertOverlay").classList.remove("show");
+}
+
+function showNotes(task) {
+  notesTaskId = task.id;
+  document.getElementById("notesTaskTitle").textContent = task.task || "Task";
+  document.getElementById("notesTaskCategory").textContent = task.category || "Category";
+  document.getElementById("notesContent").textContent = task.notes || "No notes yet.";
+  document.getElementById("notesOverlay").classList.add("show");
+}
+
+function closeNotes() {
+  document.getElementById("notesOverlay").classList.remove("show");
+}
+
+function openNotesEditor(task) {
+  pendingNotesTaskId = task.id;
+  document.getElementById("notesEditTaskTitle").textContent = task.task || "Task";
+  document.getElementById("notesEditor").value = task.notes || "";
+  document.getElementById("notesEditOverlay").classList.add("show");
+}
+
+function closeNotesEditor() {
+  document.getElementById("notesEditOverlay").classList.remove("show");
+  pendingNotesTaskId = null;
+}
+
+function saveNotesFromEditor() {
+  const task = tasks.find(t => t.id === pendingNotesTaskId);
+  if (!task) return;
+  task.notes = document.getElementById("notesEditor").value || "";
+  saveTasks();
+  closeNotesEditor();
+  renderTasks();
+  updateScreen();
+  showNotes(task);
+}
+
+function refreshCategoryFilter() {
+  const filter = document.getElementById("categoryFilter");
+  const current = filter.value || "All";
+  const options = ["All", ...categoryOptions];
+  filter.innerHTML = options.map(opt => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join("");
+  filter.value = options.includes(current) ? current : "All";
+}
+
+function getVisibleTasks() {
+  const selected = document.getElementById("categoryFilter").value || "All";
+  if (selected === "All") return tasks;
+  return tasks.filter(task => task.category === selected);
+}
+
+function renderTasks() {
+  refreshCategoryFilter();
+  const taskList = document.getElementById("taskList");
+  taskList.innerHTML = "";
+
+  getVisibleTasks().forEach(task => {
+    const row = document.createElement("div");
+    row.className = "row" + (task.alerted ? " alerted" : "");
+
+    const categorySelectHtml = categoryOptions.map(option =>
+      `<option value="${escapeHtml(option)}" ${task.category === option ? "selected" : ""}>${escapeHtml(option)}</option>`
+    ).join("");
+
+    row.innerHTML = `
+      <div class="cell time">
+        <div class="lbl">Time</div>
+        <input type="time" step="1" value="${escapeHtml(task.time)}">
+      </div>
+      <div class="cell task">
+        <div class="lbl">Task</div>
+        <input type="text" value="${escapeHtml(task.task)}">
+      </div>
+      <div class="cell category">
+        <div class="lbl">Category</div>
+        <select>${categorySelectHtml}</select>
+      </div>
+      <div class="cell notesCell">
+        <div class="lbl">Notes</div>
+        <button class="notes notesBtn">View Notes</button>
+      </div>
+      <div class="cell deleteCell">
+        <button class="secondary">X</button>
+      </div>
+    `;
+
+    const timeInput = row.querySelector('input[type="time"]');
+    const taskInput = row.querySelector('input[type="text"]');
+    const categorySelect = row.querySelector("select");
+    const notesButton = row.querySelector("button.notes");
+    const deleteButton = row.querySelector("button.secondary");
+
+    timeInput.addEventListener("input", e => {
+      task.time = e.target.value;
+      task.alerted = false;
+      saveTasks();
+      updateScreen();
+    });
+
+    taskInput.addEventListener("input", e => {
+      task.task = e.target.value;
+      saveTasks();
+      updateScreen();
+    });
+
+    categorySelect.addEventListener("change", e => {
+      task.category = e.target.value;
+      saveTasks();
+      renderTasks();
+      updateScreen();
+    });
+
+    notesButton.addEventListener("click", () => {
+      showNotes(task);
+    });
+
+    deleteButton.addEventListener("click", () => {
+      tasks = tasks.filter(t => t.id !== task.id);
+      saveTasks();
+      renderTasks();
+      updateScreen();
+    });
+
+    taskList.appendChild(row);
+  });
+}
+
+function updateScreen() {
+  const now = new Date();
+  document.getElementById("liveClock").textContent = formatTime(now);
+
+  let changed = false;
+  for (const task of tasks) {
+    const taskDate = toTodayDate(task.time);
+    if (!taskDate || task.alerted) continue;
+    if (now >= taskDate) {
+      task.alerted = true;
+      changed = true;
+      saveTasks();
+      renderTasks();
+      showAlert(task.task, task.category);
+      break;
+    }
+  }
+  if (changed) saveTasks();
+
+  const upcoming = tasks
+    .map(task => ({ ...task, taskDate: toTodayDate(task.time) }))
+    .filter(task => task.taskDate && task.taskDate > now)
+    .sort((a, b) => a.taskDate - b.taskDate)[0];
+
+  document.getElementById("countdown").textContent = upcoming ? formatCountdown(upcoming.taskDate - now) : "00:00:00";
+  document.getElementById("nextTask").textContent = upcoming ? (upcoming.task || "No upcoming tasks") : "No upcoming tasks";
+  document.getElementById("nextCategory").textContent = upcoming ? (upcoming.category || "") : "";
+}
+
+function startClock() {
+  if (intervalId) clearInterval(intervalId);
+  updateScreen();
+  intervalId = setInterval(updateScreen, 1000);
+}
+
+function stopClock() {
+  if (intervalId) clearInterval(intervalId);
+  intervalId = null;
+}
+
+function exportTasks() {
+  const customName = prompt("Name this cook off backup:", "Wellington Cook Off");
+  if (customName === null) return;
+
+  const cleanedName = String(customName).trim() || "Cook Off";
+  const safeName = cleanedName.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, "-");
+
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    app: "cookoff-timer",
+    version: 1,
+    backupName: cleanedName,
+    tasks: tasks.map(t => ({
+      time: t.time || "",
+      task: t.task || "",
+      category: t.category || "",
+      notes: t.notes || ""
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g, "-");
+  a.href = url;
+  a.download = `${safeName}-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importTasksFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      const importedTasks = Array.isArray(parsed) ? parsed : parsed.tasks;
+
+      if (!Array.isArray(importedTasks)) {
+        alert("That file does not contain a valid task list.");
+        return;
+      }
+
+      tasks = importedTasks.map((item, index) => ({
+        id: String(Date.now() + Math.random() + index),
+        time: String(item.time || ""),
+        task: String(item.task || ""),
+        category: String(item.category || "Brisket"),
+        notes: String(item.notes || ""),
+        alerted: false
+      }));
+
+      saveTasks();
+      renderTasks();
+      updateScreen();
+      alert("Tasks imported successfully.");
+    } catch (err) {
+      alert("Could not import that file.");
+    }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById("sortTasksBtn").addEventListener("click", () => {
+  tasks.sort((a, b) => {
+    if (!a.time && !b.time) return 0;
+    if (!a.time) return 1;
+    if (!b.time) return -1;
+    return a.time.localeCompare(b.time);
+  });
+  saveTasks();
+  renderTasks();
+  updateScreen();
+});
+document.getElementById("categoryFilter").addEventListener("change", () => {
+  renderTasks();
+  updateScreen();
+});
+document.getElementById("addTaskBtn").addEventListener("click", () => {
+  tasks.push({ id: String(Date.now() + Math.random()), time: "", task: "", category: "Brisket", notes: "", alerted: false });
+  saveTasks();
+  renderTasks();
+});
+document.getElementById("resetAlertsBtn").addEventListener("click", () => {
+  tasks = tasks.map(t => ({ ...t, alerted: false }));
+  saveTasks();
+  renderTasks();
+  updateScreen();
+});
+document.getElementById("testAlertBtn").addEventListener("click", () => {
+  showAlert("Test Alert", "Popup Check");
+});
+document.getElementById("exportBtn").addEventListener("click", exportTasks);
+document.getElementById("importBtn").addEventListener("click", () => {
+  document.getElementById("importFileInput").click();
+});
+document.getElementById("importFileInput").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  importTasksFromFile(file);
+  e.target.value = "";
+});
+document.getElementById("clearDataBtn").addEventListener("click", () => {
+  localStorage.removeItem(STORAGE_KEY);
+  tasks = JSON.parse(JSON.stringify(defaultTasks));
+  saveTasks();
+  renderTasks();
+  updateScreen();
+});
+document.getElementById("closeAlertBtn").addEventListener("click", closeAlert);
+document.getElementById("closeNotesBtn").addEventListener("click", closeNotes);
+document.getElementById("editNotesFromModalBtn").addEventListener("click", () => {
+  closeNotes();
+  const task = tasks.find(t => t.id === notesTaskId);
+  if (task) openNotesEditor(task);
+});
+document.getElementById("saveNotesBtn").addEventListener("click", saveNotesFromEditor);
+document.getElementById("cancelNotesBtn").addEventListener("click", closeNotesEditor);
+document.getElementById("alertOverlay").addEventListener("click", e => {
+  if (e.target.id === "alertOverlay") closeAlert();
+});
+document.getElementById("notesOverlay").addEventListener("click", e => {
+  if (e.target.id === "notesOverlay") closeNotes();
+});
+document.getElementById("notesEditOverlay").addEventListener("click", e => {
+  if (e.target.id === "notesEditOverlay") closeNotesEditor();
+});
+
+renderTasks();
+startClock();
+</script>
+</body>
+</html>
